@@ -32,6 +32,8 @@ RUN set -x ; \
     zip \
     zlib1g-dev
 
+RUN apt-get install -y unzip
+
 # Install Google Chrome
 RUN curl -sSL http://nightly.odoo.com/odoo.key | apt-key add - \
     && echo "deb http://nightly.odoo.com/deb/bionic ./" > /etc/apt/sources.list.d/google-chrome.list \
