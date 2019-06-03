@@ -21,7 +21,6 @@
                 <field name="state"/>
                 <field name="modules"/>
                 <field name="config_id"/>
-                <field name="dump_id"/>
               </group>
             </sheet>
           </form>
@@ -37,7 +36,6 @@
                 <field name="repo_id"/>
                 <field name="name"/>
                 <field name="sticky"/>
-                <field name="dump"/>
                 <field name="priority"/>
                 <field name="config_id"/>
                 <field name="state"/>
