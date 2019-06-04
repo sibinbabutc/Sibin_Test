@@ -28,3 +28,21 @@ class runbot_repo(models.Model):
     testenable_restore = fields.Boolean('Test enable on upgrade', help='test enabled on update of the restored database', default=False)
     custom_coverage = fields.Char(string='Custom coverage repository',
                                   help='Use --include arg on coverage: list of file name patterns, for example *addons/module1*,*addons/module2*. It only works on sticky branches on nightly coverage builds.')
+
+
+    def _git_export(self, treeish, dest):
+        res =  super(runbot_repo, self)._git_export(treeish, dest)
+        previous_path = '%s/%s' % (dest, 'previous_requirements.txt')
+        current_path = '%s/%s' % (dest, 'requirements.txt')
+        tmp_path = '%s/%s' % (dest, 'requirements_tmp.txt')
+
+        if os.path.isfile(previous_path) and os.path.isfile(current_path):
+            output = open(tmp_path, "wb")
+            shutil.copyfileobj(open(previous_path, "rb"), output)
+            shutil.copyfileobj(open(current_path, "rb"), output)
+            output.close()
+            os.remove(previous_path)
+            os.remove(current_path)
+            shutil.move(tmp_path, current_path)
+        shutil.copy(current_path, previous_path)
+        return res
