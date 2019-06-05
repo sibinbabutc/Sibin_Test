@@ -5,7 +5,7 @@ import os
 from odoo import models, fields
 
 
-class RunbotBuild(models.Model):
+class runbot_build(models.Model):
     _iherit = "runbot.build"
 
     dump_id = fields.Many2one('ir.attachment', string='Build DB dump')
