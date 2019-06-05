@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+  <odoo>
+     <record id="build_form" model="ir.ui.view">
+         <field name="name">runbot.build.form</field>
+         <field name="model">runbot.build</field>
+         <field name="inherit_id" ref="runbot.build_form"/>
+         <field name="arch" type="xml">
+             <xpath expr="//field[@name='orphan_result']" position="after">
+               <field name="dump_id"/>
+             </xpath>
+         </field>
+     </record>
+     <record id="view_build_tree" model="ir.ui.view">
+         <field name="name">runbot.build.tree</field>
+         <field name="model">runbot.build</field>
+         <field name="inherit_id" ref="runbot.view_build_tree"/>
+         <field name="arch" type="xml">
+             <xpath expr="//field[@name='global_result']" position="after">
+               <field name="dump"/>
+             </xpath>
+         </field>
+     </record>
+  </odoo>
+</xml>

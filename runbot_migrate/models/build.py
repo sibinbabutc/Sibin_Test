@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
+import base64
 import glob
 import os
-from odoo import models
+from odoo import models, fields
 
 
 class RunbotBuild(models.Model):
     _iherit = "runbot.build"
+
+    dump_id = fields.Many2one('ir.attachment', string='Build DB dump')
 
     def _save_dump(self):
         """ If a dump exists in the build dump dir, save it on the branch """
@@ -14,4 +17,12 @@ class RunbotBuild(models.Model):
         if dumps:
             with open(dumps[0], 'rb') as dump_file:
                 data = dump_file.read()
-                self.branch_id._save_lastdb(data, os.path.basename(dumps[0]))
+                filename = os.path.basename(dumps[0])
+                attachment = self.env['ir.attachment'].create({
+                    'datas': base64.b64encode(data),
+                    'name': filename,
+                    'datas_fname': filename
+                })
+                if self.dump_id:
+                    self.dump_id.unlink()
+                self.dump_id = attachment
