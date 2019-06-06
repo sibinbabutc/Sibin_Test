@@ -28,7 +28,7 @@ class DumpStep(models.Model):
         cmd = '&&'.join([
             'cd /data/build',
             'mkdir -p dump',
-            'pg_dump -d %(db_name)s > %(db_name)s.sql',
+            'pg_dump -d %(db_name)s > %(db_name)s.sql' % {'db_name': db_name},
             r'tar -c --transform "s/datadir\/filestore\/%(db_name)s/filestore/" -f dump/%(db_name)s.tar.gz %(db_name)s.sql datadir/filestore/%(db_name)s' % {'db_name': db_name}
         ])
         docker_run(cmd, log_path, build._path(), build._get_docker_name())
