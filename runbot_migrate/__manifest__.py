@@ -7,7 +7,5 @@
     'author': 'Odoo SA',
     'depends': ['runbot'],
     'data': [
-        'views/build_views.xml',
-        'data/runbot_build_config_data.xml',
     ],
 }
