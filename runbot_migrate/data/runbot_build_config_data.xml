@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="runbot_build_config_step_dump" model="runbot.build.config.step">
+        <field name="name">dump_db</field>
+        <field name="job_type">dump_db</field>
+        <field name="description">Dump database from previous step into a file</field>
+        <field name="protected" eval="True"/>
+    </record>
+    <record id="runbot_build_config_step_save_dump" model="runbot.build.config.step">
+        <field name="name">save_db_dump</field>
+        <field name="job_type">save_dump</field>
+        <field name="description">Save database dump as ir_attachement</field>
+        <field name="protected" eval="True"/>
+    </record>
+</odoo>
