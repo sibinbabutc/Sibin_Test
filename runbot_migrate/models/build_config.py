@@ -46,11 +46,10 @@ class SaveStep(models.Model):
 
     def _save_dump(self, build, log_path):
         """ If a dump exists in the build dump dir, save it as an ir.attachement """
-        dumps = glob.glob(build._path('dump/%s-*.tar.gz' % build.dest))
-        if dumps:
-            with open(dumps[0], 'rb') as dump_file:
+        for dump_path in glob.glob(build._path('dump/%s-*.tar.gz' % build.dest)):
+            with open(dump_path, 'rb') as dump_file:
                 data = dump_file.read()
-                filename = os.path.basename(dumps[0])
+                filename = os.path.basename(dump_path)
                 self.env['ir.attachment'].create({
                     'res_model': 'runbot.build',
                     'res_id': build.id,
