@@ -492,6 +492,7 @@ class runbot_repo(models.Model):
         nginx_dir = os.path.join(self._root(), 'nginx')
         settings['nginx_dir'] = nginx_dir
         settings['re_escape'] = re.escape
+        settings['nginx_client_max_body_size'] = self.env.get('ir.config_parameter').get_param('runbot.nginx_client_max_body_size', '10M')
         settings['fqdn'] = fqdn()
         nginx_repos = self.search([('nginx', '=', True)], order='id')
         if nginx_repos:

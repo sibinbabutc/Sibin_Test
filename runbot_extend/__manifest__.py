@@ -11,6 +11,7 @@
         'data/cron.xml',
         'views/repo.xml',
         'views/runbot_build_config.xml',
+        'views/res_config_settings_views.xml',
         'views/templates.xml',
     ],
 }
