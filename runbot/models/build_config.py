@@ -205,7 +205,6 @@ class ConfigStep(models.Model):
                     'committer': build.committer,
                     'committer_email': build.committer_email,
                     'subject': build.subject,
-                    'modules': build.modules,
                     'hidden': self.hide_build,
                     'orphan_result': self.make_orphan,
                 })
@@ -267,13 +266,14 @@ class ConfigStep(models.Model):
 
     def _run_odoo_install(self, build, log_path):
         cmd = build._cmd()
+        exports, default_modules = build._checkout()
         # create db if needed
         db_name = "%s-%s" % (build.dest, self.db_name)
         if self.create_db:
             build._local_pg_createdb(db_name)
         cmd += ['-d', db_name]
         # list module to install
-        modules_to_install = self._modules_to_install(build)
+        modules_to_install = self._modules_to_install(default_modules)
         mods = ",".join(modules_to_install)
         if mods:
             cmd += ['-i', mods]
@@ -302,13 +302,13 @@ class ConfigStep(models.Model):
 
         max_timeout = int(self.env['ir.config_parameter'].get_param('runbot.runbot_timeout', default=10000))
         timeout = min(self.cpu_limit, max_timeout)
-        return docker_run(build_odoo_cmd(cmd), log_path, build._path(), build._get_docker_name(), cpu_limit=timeout, ro_volumes=build._checkout())
+        return docker_run(build_odoo_cmd(cmd), log_path, build._path(), build._get_docker_name(), cpu_limit=timeout, ro_volumes=exports)
 
-    def _modules_to_install(self, build):
+    def _modules_to_install(self, default_modules):
         modules_to_install = set([mod.strip() for mod in self.install_modules.split(',')])
         if '*' in modules_to_install:
             modules_to_install.remove('*')
-            default_mod = set([mod.strip() for mod in build.modules.split(',')])
+            default_mod = set([mod.strip() for mod in default_modules.split(',')])
             modules_to_install = default_mod | modules_to_install
             #  todo add without support
         return modules_to_install

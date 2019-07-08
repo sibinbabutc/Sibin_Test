@@ -10,12 +10,14 @@ import time
 import datetime
 from ..common import dt2time, fqdn, now, grep, uniq_list, local_pgadmin_cursor, s2human
 from ..container import docker_build, docker_stop, docker_is_running
+from repo import HashMissingException
 from odoo import models, fields, api
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 from odoo.tools import appdirs
 from collections import defaultdict
 from subprocess import CalledProcessError
+
 
 _logger = logging.getLogger(__name__)
 
@@ -47,7 +49,6 @@ class runbot_build(models.Model):
     committer_email = fields.Char('Committer Email')
     subject = fields.Text('Subject')
     sequence = fields.Integer('Sequence')
-    modules = fields.Char("Modules to Install")
 
     # state machine
 
@@ -392,7 +393,6 @@ class runbot_build(models.Model):
                     'committer': build.committer,
                     'committer_email': build.committer_email,
                     'subject': build.subject,
-                    'modules': build.modules,
                     'build_type': 'rebuild',
                 }
                 if exact:
@@ -670,22 +670,27 @@ class runbot_build(models.Model):
         os.makedirs(self._path("logs"), exist_ok=True)
 
         # checkout branch
-        repos = []
         manifests_by_repo = {}
-        repos_hash = repos_sha or self.get_all_repo_sha()
-        for repo, sha in self.get_all_repo_sha():
-            repo._git_export(sha, self)
-            manifests_by_repo[repo] = self._get_available_manifests(repo, sha)
-            repos.append(repo)
-
         available_modules = []
-        for repo in repos:
+        repos_hash = repos_sha or self.get_all_repo_sha()
+        sources = {}
+        for repo, sha in self.get_all_repo_sha():
+            build_export_path = self._path(dest_name)
+            if build_export_path in sources:
+                self.log('_checkout', 'Multiple repo have same export path in build, some source may be missing for %s' % export_name, level='ERROR')
+                build.local_result = 'warning'
+            try:
+                sources[build_export_path] = repo._git_export(sha)
+            except HashMissingException:
+                build._log('_checkout', "Commit %s in repo %s is unreachable. Did you force push the branch since build creation?" % (sha, repo.name) level=Error)
+                build.kill(result='ko')
+            manifests_by_repo[repo] = self._get_available_manifests(repo, sha)
             for manifest_path in manifests_by_repo[repo]:
                 module = os.path.dirname(manifest_path)
                 if module in available_modules:
                     self._log(
                         'Building environment',
-                        'You have duplicate modules in "%s"' % module,
+                        '%s is a duplicated modules (found in "%s")' % (module, manifest_path),
                         level='WARNING'
                     )
                 else:
@@ -710,7 +715,7 @@ class runbot_build(models.Model):
         modules_to_test = self._filter_modules(modules_to_test, available_modules, explicit_modules)
 
         _logger.debug("modules_to_test for build %s: %s", self.dest, modules_to_test)
-        self.write('modules': ','.join(modules_to_test)})
+        return sources, modules_to_test
 
     def _local_pg_dropdb(self, dbname):
         with local_pgadmin_cursor() as local_cr:
@@ -821,7 +826,7 @@ class runbot_build(models.Model):
         self._log('server_info', 'No server found in %s' % sha_dest_name, level='ERROR')
         raise ValidationError('No server found')
 
-    def _cmd(self):  # why not remove build.modules output ?
+    def _cmd(self):
         """Return a tuple describing the command to start the build
         First part is list with the command and parameters
         Second part is a list of Odoo modules

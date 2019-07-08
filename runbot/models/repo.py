@@ -20,6 +20,8 @@ from ..common import fqdn, dt2time
 from psycopg2.extensions import TransactionRollbackError
 _logger = logging.getLogger(__name__)
 
+class HashMissingException(Exception):
+    pass
 
 class runbot_repo(models.Model):
 
@@ -119,48 +121,30 @@ class runbot_repo(models.Model):
     def _sha_dest_name(self, sha):
         return '%s-%s' % (self._get_repo_name_part(), sha[:8])  # adding a part of the sha for tracibility and uniqueness"
 
-    def _git_export(self, sha, build):
+    def _git_export(self, sha):
         """Export a git repo into a build workspace"""
         # TODO add automated tests
         self.ensure_one()
-        _logger.debug('git export: %s:%s -> %s', self.name, sha, build.dest)
-        dest_name = self._sha_dest_name(sha)
-        dest_path = build._path(dest_name)
-        if os.path.isdir(dest_path):
-            _logger.warning('git export: dest "%s" already exists' % dest_path)
-            build._log('git_export', '%s sources were already available in build workspace, skipping export' % self.name)
-            return
-
         export_path = os.path.join(self._root(), 'sources', self._get_repo_name_part(), sha)
-        if not os.path.isdir(export_path):
-            if not self._hash_exists(sha):
-                self._update(force=True)
-            if not self._hash_exists(sha):
-                try:
-                    self._git(['fetch', 'origin', sha])
-                except:
-                    pass
-            if not self._hash_exists(sha):
-                build._log('_checkout', "Dependency commit %s in repo %s is unreachable. Did you force push the branch since build creation?" % (sha, self.name))
-                raise Exception
+        if os.path.isdir(export_path):
+            return export_path
+        if not self._hash_exists(sha):
+            self._update(force=True)
+        if not self._hash_exists(sha):
+            try:
+                self._git(['fetch', 'origin', sha])
+            except:
+                pass
+        if not self._hash_exists(sha):
+            raise HashMissingException()
 
-            _logger.debug('git export: checkouting to %s' % export_path)
-            subprocess.Popen(['mkdir', '-p', export_path])
-            p1 = subprocess.Popen(['git', '--git-dir=%s' % self.path, 'archive', sha], stdout=subprocess.PIPE)
-            p2 = subprocess.Popen(['tar', '-xmC', export_path], stdin=p1.stdout, stdout=subprocess.PIPE)
-            p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
-            p2.communicate()[0]
-        # p3 = subprocess.Popen(['ln', '-s', export_path, dest_path], stdin=p1.stdout, stdout=subprocess.PIPE)
-        script_path = os.path.join(os.path.split(os.path.dirname(__file__))[0], 'bindmount.sh')
-        subprocess.Popen(['mkdir', '-p', dest_path])
-        failed = False
-        try:
-            print(" ".join([script_path, 'mount', export_path, dest_path]))
-            subprocess.Popen(['sudo', script_path, 'mount', export_path, dest_path])
-        except PermissionError:
-            build._log('_git_export', 'Error while exporting sources. Does bindmount have execution rights?', level='ERROR')
-            raise ValidationError('Impossible to export sources to build path')
-        return dest_name
+        _logger.debug('git export: checkouting to %s' % export_path)
+        os.makedirs(export_path, exist_ok=True)
+        p1 = subprocess.Popen(['git', '--git-dir=%s' % self.path, 'archive', sha], stdout=subprocess.PIPE)
+        p2 = subprocess.Popen(['tar', '-xmC', export_path], stdin=p1.stdout, stdout=subprocess.PIPE)
+        p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
+        p2.communicate()[0]
+        return export_path
 
     def _hash_exists(self, commit_hash):
         """ Verify that a commit hash exists in the repo """
