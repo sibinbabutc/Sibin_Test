@@ -10,7 +10,7 @@ import time
 import datetime
 from ..common import dt2time, fqdn, now, grep, uniq_list, local_pgadmin_cursor, s2human
 from ..container import docker_build, docker_stop, docker_is_running
-from repo import HashMissingException
+from odoo.addons.runbot.models.repo import HashMissingException
 from odoo import models, fields, api
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
@@ -541,7 +541,7 @@ class runbot_build(models.Model):
                     build._log('_schedule', 'Init build environment with config %s ' % build.config_id.name)
                     # notify pending build - avoid confusing users by saying nothing
                     build._github_status()
-                    # build._checkout()  # todo, move this to install job, with existence_check
+                    os.makedirs(build._path('logs'), exist_ok=True)
                     build._log('_schedule', 'Building docker image')
                     docker_build(build._path('logs', 'docker_build.txt'), build._path())
                 except Exception:
@@ -624,14 +624,13 @@ class runbot_build(models.Model):
         root = self.env['runbot.repo']._root()
         return os.path.join(root, 'build', build.dest, *l)
 
-    def _server(self, *l, **kw):  # not really build related, specific to odoo version, could be a data
+    def _server(self, *l):  # not really build related, specific to odoo version, could be a data
         """Return the build server path"""
         self.ensure_one()
         (repo, sha) = self.get_server_repo_sha()
-        server_folder = repo._sha_dest_name(sha)
-        if os.path.exists(self._path(server_folder, 'odoo')):
-            return self._path(server_folder, 'odoo', *l)
-        return self._path(server_folder, 'openerp', *l)
+        if os.path.exists(repo._source(sha, 'odoo')):
+            return repo._source(sha, 'odoo', *l)
+        return repo._source(sha, 'openerp', *l)
 
     def _filter_modules(self, modules, available_modules, explicit_modules):
 
@@ -661,29 +660,28 @@ class runbot_build(models.Model):
 
     def _checkout(self, repos_sha=None):
         self.ensure_one()  # will raise exception if hash not found, we don't want to fail for all build.
-        # starts from scratch
-        build = self
-        if os.path.isdir(build._path()):
-            shutil.rmtree(build._path())
-
-        # runbot log path
-        os.makedirs(self._path("logs"), exist_ok=True)
-
         # checkout branch
         manifests_by_repo = {}
         available_modules = []
-        repos_hash = repos_sha or self.get_all_repo_sha()
         sources = {}
-        for repo, sha in self.get_all_repo_sha():
-            build_export_path = self._path(dest_name)
+        for repo, sha in repos_sha or self.get_all_repo_sha():
+            build_export_path = repo._sha_dest_name(sha)
             if build_export_path in sources:
                 self.log('_checkout', 'Multiple repo have same export path in build, some source may be missing for %s' % export_name, level='ERROR')
-                build.local_result = 'warning'
+                self._kill(result='warning')
             try:
                 sources[build_export_path] = repo._git_export(sha)
             except HashMissingException:
-                build._log('_checkout', "Commit %s in repo %s is unreachable. Did you force push the branch since build creation?" % (sha, repo.name) level=Error)
-                build.kill(result='ko')
+                self._log('_checkout', "Commit %s in repo %s is unreachable. Did you force push the branch since build creation?" % (sha, repo.name), level='ERROR')
+                self.kill(result='ko')
+        return sources
+
+    def _get_modules_to_test(self, repos_sha=None):
+        self.ensure_one()  # will raise exception if hash not found, we don't want to fail for all build.
+        # checkout branch
+        manifests_by_repo = {}
+        available_modules = []
+        for repo, sha in repos_sha or self.get_all_repo_sha():
             manifests_by_repo[repo] = self._get_available_manifests(repo, sha)
             for manifest_path in manifests_by_repo[repo]:
                 module = os.path.dirname(manifest_path)
@@ -715,7 +713,7 @@ class runbot_build(models.Model):
         modules_to_test = self._filter_modules(modules_to_test, available_modules, explicit_modules)
 
         _logger.debug("modules_to_test for build %s: %s", self.dest, modules_to_test)
-        return sources, modules_to_test
+        return modules_to_test
 
     def _local_pg_dropdb(self, dbname):
         with local_pgadmin_cursor() as local_cr:
@@ -821,10 +819,10 @@ class runbot_build(models.Model):
         server_repo, server_sha = server_repo_sha or self.get_server_repo_sha()
         sha_dest_name = server_repo._sha_dest_name(server_sha)
         for server_file in server_repo.server_files.split(','):
-            if os.path.isfile(self._path(sha_dest_name, server_file)):
+            if os.path.isfile(server_repo._source(server_sha, server_file)):
                 return (server_repo, server_sha, server_file)
         self._log('server_info', 'No server found in %s' % sha_dest_name, level='ERROR')
-        raise ValidationError('No server found')
+        raise ValidationError('No server found in %s for sha %s' % (server_repo.short_name, server_sha))
 
     def _cmd(self):
         """Return a tuple describing the command to start the build

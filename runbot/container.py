@@ -39,7 +39,9 @@ def build_odoo_cmd(odoo_cmd):
     # build cmd
     cmd_chain = []
     cmd_chain.append('cd /data/build')
-    cmd_chain.append('head -1 odoo-bin | grep -q python3 && sudo pip3 install -r requirements.txt || sudo pip install -r requirements.txt')
+    server_path = odoo_cmd[0]
+    requirement_path = os.path.join(os.path.basename(server_path), 'requirements.txt')
+    cmd_chain.append('head -1 %s | grep -q python3 && sudo pip3 install -r %s || sudo pip install -r %s' % (requirement_path, requirement_path, server_path))
     cmd_chain.append(' '.join(odoo_cmd))
     return ' && '.join(cmd_chain)
 
@@ -83,7 +85,7 @@ def docker_run(run_cmd, log_path, build_dir, container_name, exposed_ports=None,
         '--init',
     ]
     if ro_volumes:
-        for dest, source in ro_volumes:
+        for dest, source in ro_volumes.items():
             docker_command.append('--volume=%s:/data/build/%s:ro' % (source, dest))
 
     serverrc_path = os.path.expanduser('~/.openerp_serverrc')

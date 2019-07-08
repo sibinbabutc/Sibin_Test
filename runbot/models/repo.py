@@ -77,6 +77,10 @@ class runbot_repo(models.Model):
         default = os.path.join(os.path.dirname(__file__), '../static')
         return os.path.abspath(default)
 
+    def _source(self, sha, *l):
+        self.ensure_one()
+        return os.path.join(self._root(), 'sources', self._get_repo_name_part(), sha, *l)
+
     @api.depends('name')
     def _get_path(self):
         """compute the server path of repo from the name"""
@@ -125,9 +129,12 @@ class runbot_repo(models.Model):
         """Export a git repo into a build workspace"""
         # TODO add automated tests
         self.ensure_one()
-        export_path = os.path.join(self._root(), 'sources', self._get_repo_name_part(), sha)
+        export_path = self._source(sha)
+
         if os.path.isdir(export_path):
+            _logger.info('git export: checkouting to %s (already exists)' % export_path)
             return export_path
+
         if not self._hash_exists(sha):
             self._update(force=True)
         if not self._hash_exists(sha):
@@ -138,7 +145,7 @@ class runbot_repo(models.Model):
         if not self._hash_exists(sha):
             raise HashMissingException()
 
-        _logger.debug('git export: checkouting to %s' % export_path)
+        _logger.info('git export: checkouting to % (new)' % export_path)
         os.makedirs(export_path, exist_ok=True)
         p1 = subprocess.Popen(['git', '--git-dir=%s' % self.path, 'archive', sha], stdout=subprocess.PIPE)
         p2 = subprocess.Popen(['tar', '-xmC', export_path], stdin=p1.stdout, stdout=subprocess.PIPE)

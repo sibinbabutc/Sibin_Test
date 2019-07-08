@@ -231,6 +231,7 @@ class ConfigStep(models.Model):
         return safe_eval(self.sudo().python_code.strip(), eval_ctx, mode="exec", nocopy=True)
 
     def _run_odoo_run(self, build, log_path):
+        exports = build._checkout()
         # adjust job_end to record an accurate job_20 job_time
         build._log('run', 'Start running build %s' % build.dest)
         # run server
@@ -262,18 +263,18 @@ class ConfigStep(models.Model):
         build_port = build.port
         self.env.cr.commit()  # commit before docker run to be 100% sure that db state is consistent with dockers
         self.invalidate_cache()
-        return docker_run(build_odoo_cmd(cmd), log_path, build_path, docker_name, exposed_ports=[build_port, build_port + 1], ro_volumes=build._checkout())
+        return docker_run(build_odoo_cmd(cmd), log_path, build_path, docker_name, exposed_ports=[build_port, build_port + 1], ro_volumes=exports)
 
     def _run_odoo_install(self, build, log_path):
+        exports = build._checkout()
         cmd = build._cmd()
-        exports, default_modules = build._checkout()
         # create db if needed
         db_name = "%s-%s" % (build.dest, self.db_name)
         if self.create_db:
             build._local_pg_createdb(db_name)
         cmd += ['-d', db_name]
         # list module to install
-        modules_to_install = self._modules_to_install(default_modules)
+        modules_to_install = self._modules_to_install(build)
         mods = ",".join(modules_to_install)
         if mods:
             cmd += ['-i', mods]
@@ -304,11 +305,11 @@ class ConfigStep(models.Model):
         timeout = min(self.cpu_limit, max_timeout)
         return docker_run(build_odoo_cmd(cmd), log_path, build._path(), build._get_docker_name(), cpu_limit=timeout, ro_volumes=exports)
 
-    def _modules_to_install(self, default_modules):
+    def _modules_to_install(self, build):
         modules_to_install = set([mod.strip() for mod in self.install_modules.split(',')])
         if '*' in modules_to_install:
             modules_to_install.remove('*')
-            default_mod = set([mod.strip() for mod in default_modules.split(',')])
+            default_mod = set([mod.strip() for mod in build._get_modules_to_test()])
             modules_to_install = default_mod | modules_to_install
             #  todo add without support
         return modules_to_install
