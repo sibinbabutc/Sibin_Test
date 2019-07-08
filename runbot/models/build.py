@@ -11,7 +11,7 @@ import datetime
 from ..common import dt2time, fqdn, now, grep, uniq_list, local_pgadmin_cursor, s2human
 from ..container import docker_build, docker_stop, docker_is_running
 from odoo import models, fields, api
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 from odoo.tools import appdirs
 from collections import defaultdict
@@ -73,10 +73,6 @@ class runbot_build(models.Model):
     build_time = fields.Integer(compute='_compute_build_time', string='Job time')
     build_age = fields.Integer(compute='_compute_build_age', string='Build age')
     duplicate_id = fields.Many2one('runbot.build', 'Corresponding Build', index=True)
-    server_match = fields.Selection([('builtin', 'This branch includes Odoo server'),
-                                     ('match', 'This branch includes Odoo server'),
-                                     ('default', 'No match found - defaults to master')],
-                                    string='Server branch matching')
     revdep_build_ids = fields.Many2many('runbot.build', 'runbot_rev_dep_builds',
                                         column1='rev_dep_id', column2='dependent_id',
                                         string='Builds that depends on this build')
@@ -410,7 +406,6 @@ class runbot_build(models.Model):
                     values.update({
                         'config_id': build.config_id.id,
                         'extra_params': build.extra_params,
-                        'server_match': build.server_match,
                         'orphan_result': build.orphan_result,
                     })
                     #if replace: ?
@@ -546,7 +541,7 @@ class runbot_build(models.Model):
                     build._log('_schedule', 'Init build environment with config %s ' % build.config_id.name)
                     # notify pending build - avoid confusing users by saying nothing
                     build._github_status()
-                    build._checkout()
+                    # build._checkout()  # todo, move this to install job, with existence_check
                     build._log('_schedule', 'Building docker image')
                     docker_build(build._path('logs', 'docker_build.txt'), build._path())
                 except Exception:
@@ -632,25 +627,39 @@ class runbot_build(models.Model):
     def _server(self, *l, **kw):  # not really build related, specific to odoo version, could be a data
         """Return the build server path"""
         self.ensure_one()
-        build = self
-        if os.path.exists(build._path('odoo')):
-            return build._path('odoo', *l)
-        return build._path('openerp', *l)
+        (repo, sha) = self.get_server_repo_sha()
+        server_folder = repo._sha_dest_name(sha)
+        if os.path.exists(self._path(server_folder, 'odoo')):
+            return self._path(server_folder, 'odoo', *l)
+        return self._path(server_folder, 'openerp', *l)
 
     def _filter_modules(self, modules, available_modules, explicit_modules):
+
         blacklist_modules = set(['auth_ldap', 'document_ftp', 'base_gengo',
                                  'website_gengo', 'website_instantclick',
                                  'pad', 'pad_project', 'note_pad',
                                  'pos_cache', 'pos_blackbox_be'])
 
-        mod_filter = lambda m: (
-            m in available_modules and
-            (m in explicit_modules or (not m.startswith(('hw_', 'theme_', 'l10n_')) and
-                                       m not in blacklist_modules))
-        )
-        return uniq_list(filter(mod_filter, modules))
+        def mod_filter(module):
+            if module not in available_modules:
+                return False
+            if module in explicit_modules:
+                return True
+            if module.startswith(('hw_', 'theme_', 'l10n_')):
+                return False
+            if module not in blacklist_modules:
+                return False
+            return True
 
-    def _checkout(self):
+        return uniq_list([module for module in modules if mod_filter(module)])
+
+    def _get_available_manifests(self, repo, sha):
+        repo_path = repo._sha_dest_name(sha)
+        for file_name in repo.manifest_files:  # __manifest__.py, __openerp__.py
+            for manifest_path in glob.glob(self._path(repo_path, '*/%s' % file_name)):
+                yield manifest_path
+
+    def _checkout(self, repos_sha=None):
         self.ensure_one()  # will raise exception if hash not found, we don't want to fail for all build.
         # starts from scratch
         build = self
@@ -658,99 +667,50 @@ class runbot_build(models.Model):
             shutil.rmtree(build._path())
 
         # runbot log path
-        os.makedirs(build._path("logs"), exist_ok=True)
-        os.makedirs(build._server('addons'), exist_ok=True)
-
-        # update repo if needed
-        if not build.repo_id._hash_exists(build.name):
-            build.repo_id._update()
+        os.makedirs(self._path("logs"), exist_ok=True)
 
         # checkout branch
-        build.branch_id.repo_id._git_export(build.name, build._path())
+        repos = []
+        manifests_by_repo = {}
+        repos_hash = repos_sha or self.get_all_repo_sha()
+        for repo, sha in self.get_all_repo_sha():
+            repo._git_export(sha, self)
+            manifests_by_repo[repo] = self._get_available_manifests(repo, sha)
+            repos.append(repo)
 
-        has_server = os.path.isfile(build._server('__init__.py'))
-        server_match = 'builtin'
-
-        # build complete set of modules to install
-        modules_to_move = []
-        modules_to_test = ((build.branch_id.modules or '') + ',' +
-                            (build.repo_id.modules or ''))
-        modules_to_test = list(filter(None, modules_to_test.split(',')))  # ???
-        explicit_modules = set(modules_to_test)
-        _logger.debug("manual modules_to_test for build %s: %s", build.dest, modules_to_test)
-
-        if not has_server:
-            if build.repo_id.modules_auto == 'repo':
-                modules_to_test += [
-                    os.path.basename(os.path.dirname(a))
-                    for a in (glob.glob(build._path('*/__openerp__.py')) +
-                                glob.glob(build._path('*/__manifest__.py')))
-                ]
-                _logger.debug("local modules_to_test for build %s: %s", build.dest, modules_to_test)
-
-            # todo make it backward compatible, or create migration script?
-            for build_dependency in build.dependency_ids:
-                closest_branch = build_dependency.closest_branch_id
-                latest_commit = build_dependency.dependency_hash
-                repo = closest_branch.repo_id or build_dependency.repo_id
-                closest_name = closest_branch.name or 'no_branch'
-                if build_dependency.match_type == 'default':
-                    server_match = 'default'
-                elif server_match != 'default':
-                    server_match = 'match'
-
-                build._log(
-                    '_checkout', 'Checkouting %s from %s' % (closest_name, repo.name)
-                )
-
-                if not repo._hash_exists(latest_commit):
-                    repo._update(force=True)
-                if not repo._hash_exists(latest_commit):
-                    try:
-                        repo._git(['fetch', 'origin', latest_commit])
-                    except:
-                        pass
-                if not repo._hash_exists(latest_commit):
-                    build._log('_checkout', "Dependency commit %s in repo %s is unreachable. Did you force push the branch since build creation?" % (latest_commit, repo.name))
-                    raise Exception
-
-                repo._git_export(latest_commit, build._path())
-
-            # Finally mark all addons to move to openerp/addons
-            modules_to_move += [
-                os.path.dirname(module)
-                for module in (glob.glob(build._path('*/__openerp__.py')) +
-                                glob.glob(build._path('*/__manifest__.py')))
-            ]
-
-        # move all addons to server addons path
-        for module in uniq_list(glob.glob(build._path('addons/*')) + modules_to_move):
-            basename = os.path.basename(module)
-            addon_path = build._server('addons', basename)
-            if os.path.exists(addon_path):
-                build._log(
-                    'Building environment',
-                    'You have duplicate modules in your branches "%s"' % basename
-                )
-                if os.path.islink(addon_path) or os.path.isfile(addon_path):
-                    os.remove(addon_path)
+        available_modules = []
+        for repo in repos:
+            for manifest_path in manifests_by_repo[repo]:
+                module = os.path.dirname(manifest_path)
+                if module in available_modules:
+                    self._log(
+                        'Building environment',
+                        'You have duplicate modules in "%s"' % module,
+                        level='WARNING'
+                    )
                 else:
-                    shutil.rmtree(addon_path)
-            shutil.move(module, build._server('addons'))
+                    available_modules += module
 
-        available_modules = [
-            os.path.basename(os.path.dirname(a))
-            for a in (glob.glob(build._server('addons/*/__openerp__.py')) +
-                        glob.glob(build._server('addons/*/__manifest__.py')))
-        ]
-        if build.repo_id.modules_auto == 'all' or (build.repo_id.modules_auto != 'none' and has_server):
-            modules_to_test += available_modules
+        explicit_modules = uniq_list([module for module in (self.branch_id.modules or '').split(',') + (self.repo_id.modules or '').split(',') if module])
 
-        modules_to_test = self._filter_modules(modules_to_test,
-                                                set(available_modules), explicit_modules)
-        _logger.debug("modules_to_test for build %s: %s", build.dest, modules_to_test)
-        build.write({'server_match': server_match,
-                        'modules': ','.join(modules_to_test)})
+        if explicit_modules:
+            _logger.debug("explicit modules_to_test for build %s: %s", self.dest, explicit_modules)
+
+        if set(explicit_modules) - set(available_modules):
+            self.log('checkout', 'Some explicit modules (branch or repo defined) are not in available module list.', level='WARNING')
+
+        if self.repo_id.modules_auto == 'all':
+            modules_to_test = available_modules
+        elif self.repo_id.modules_auto == 'repo':
+            modules_to_test = explicit_modules + [os.path.dirname(manifest) for manifest in manifests_by_repo[self.repo_id]]
+            _logger.debug("local modules_to_test for build %s: %s", self.dest, modules_to_test)
+        else:
+            modules_to_test = explicit_modules
+
+        modules_to_test = self._filter_modules(modules_to_test, available_modules, explicit_modules)
+
+        _logger.debug("modules_to_test for build %s: %s", self.dest, modules_to_test)
+        self.write('modules': ','.join(modules_to_test)})
 
     def _local_pg_dropdb(self, dbname):
         with local_pgadmin_cursor() as local_cr:
@@ -834,6 +794,33 @@ class runbot_build(models.Model):
             if not child.duplicate_id:
                 child._ask_kill()
 
+    def get_all_repo_sha(self):
+        return [(self.repo_id, self.name)] + [(dep.get_repo(), dep.dependency_hash) for dep in self.dependency_ids]
+
+    def get_server_repo_sha(self, repo_sha_list=None):
+        for repo, sha in (repo_sha_list or self.get_all_repo_sha()):
+            if repo.server_files:
+                return (repo, sha)
+        raise ValidationError('No repo found with defined server_files')
+
+    def get_addons_path(self, repo_sha_list=None):
+        for repo, sha in (repo_sha_list or self.get_all_repo_sha()):
+            if repo.server_files:
+                yield os.path.join(repo._sha_dest_name(sha), 'addons')
+            else:
+                yield repo._sha_dest_name(sha)
+
+    def get_server_info(self, server_repo_sha=None):
+        server_dir = False
+        server = False
+        server_repo, server_sha = server_repo_sha or self.get_server_repo_sha()
+        sha_dest_name = server_repo._sha_dest_name(server_sha)
+        for server_file in server_repo.server_files.split(','):
+            if os.path.isfile(self._path(sha_dest_name, server_file)):
+                return (server_repo, server_sha, server_file)
+        self._log('server_info', 'No server found in %s' % sha_dest_name, level='ERROR')
+        raise ValidationError('No server found')
+
     def _cmd(self):  # why not remove build.modules output ?
         """Return a tuple describing the command to start the build
         First part is list with the command and parameters
@@ -841,21 +828,15 @@ class runbot_build(models.Model):
         """
         self.ensure_one()
         build = self
-        bins = [
-            'odoo-bin',                 # >= 10.0
-            'openerp-server',           # 9.0, 8.0
-            'openerp-server.py',        # 7.0
-            'bin/openerp-server.py',    # < 7.0
-        ]
-        for odoo_bin in bins:
-            if os.path.isfile(build._path(odoo_bin)):
-                break
 
+        (repo, server_sha, server_file) = self.get_server_info()
+        server_dir = repo._sha_dest_name(server_sha)
+        addons_paths = self.get_addons_path()
         # commandline
-        cmd = [ os.path.join('/data/build', odoo_bin), ]
+        cmd = [os.path.join('/data/build', server_dir, server_file), '--addons-path', ",".join(addons_paths)]
         # options
         if grep(build._server("tools/config.py"), "no-xmlrpcs"):  # move that to configs ?
-            cmd.append("--no-xmlrpcs") 
+            cmd.append("--no-xmlrpcs")
         if grep(build._server("tools/config.py"), "no-netrpc"):
             cmd.append("--no-netrpc")
         if grep(build._server("tools/config.py"), "log-db"):
@@ -876,7 +857,7 @@ class runbot_build(models.Model):
         # use the username of the runbot host to connect to the databases
         cmd += ['-r %s' % pwd.getpwuid(os.getuid()).pw_name]
 
-        return cmd, build.modules
+        return cmd
 
     def _github_status_notify_all(self, status):
         """Notify each repo with a status"""

@@ -235,8 +235,9 @@ class ConfigStep(models.Model):
         # adjust job_end to record an accurate job_20 job_time
         build._log('run', 'Start running build %s' % build.dest)
         # run server
-        cmd, _ = build._cmd()
-        if os.path.exists(build._server('addons/im_livechat')):
+        cmd = build._cmd()
+        server = build._server()
+        if os.path.exists(os.path.join(server, 'addons/im_livechat')):
             cmd += ["--workers", "2"]
             cmd += ["--longpolling-port", "8070"]
             cmd += ["--max-cron-threads", "1"]
@@ -248,7 +249,7 @@ class ConfigStep(models.Model):
         # we need to have at least one job of type install_odoo to run odoo, take the last one for db_name.
         cmd += ['-d', '%s-%s' % (build.dest, db_name)]
 
-        if grep(build._server("tools/config.py"), "db-filter"):
+        if grep(os.path.join(server, "tools/config.py"), "db-filter"):
             if build.repo_id.nginx:
                 cmd += ['--db-filter', '%d.*$']
             else:
@@ -262,10 +263,10 @@ class ConfigStep(models.Model):
         build_port = build.port
         self.env.cr.commit()  # commit before docker run to be 100% sure that db state is consistent with dockers
         self.invalidate_cache()
-        return docker_run(build_odoo_cmd(cmd), log_path, build_path, docker_name, exposed_ports=[build_port, build_port + 1])
+        return docker_run(build_odoo_cmd(cmd), log_path, build_path, docker_name, exposed_ports=[build_port, build_port + 1], ro_volumes=build._checkout())
 
     def _run_odoo_install(self, build, log_path):
-        cmd, _ = build._cmd()
+        cmd = build._cmd()
         # create db if needed
         db_name = "%s-%s" % (build.dest, self.db_name)
         if self.create_db:
@@ -301,7 +302,7 @@ class ConfigStep(models.Model):
 
         max_timeout = int(self.env['ir.config_parameter'].get_param('runbot.runbot_timeout', default=10000))
         timeout = min(self.cpu_limit, max_timeout)
-        return docker_run(build_odoo_cmd(cmd), log_path, build._path(), build._get_docker_name(), cpu_limit=timeout)
+        return docker_run(build_odoo_cmd(cmd), log_path, build._path(), build._get_docker_name(), cpu_limit=timeout, ro_volumes=build._checkout())
 
     def _modules_to_install(self, build):
         modules_to_install = set([mod.strip() for mod in self.install_modules.split(',')])
@@ -322,13 +323,18 @@ class ConfigStep(models.Model):
         return []
 
     def _coverage_params(self, build, modules_to_install):
-        available_modules = [  # todo extract this to build method
-            os.path.basename(os.path.dirname(a))
-            for a in (glob.glob(build._server('addons/*/__openerp__.py')) +
-                        glob.glob(build._server('addons/*/__manifest__.py')))
-        ]
-        module_to_omit = set(available_modules) - modules_to_install
-        return ['--omit', ','.join('*addons/%s/*' % m for m in module_to_omit) + ',*__manifest__.py']
+        pattern_to_omit = set()
+        for repo, sha in self.get_all_repo_sha:
+            for manifest_file in repo.manifest_files:
+                pattern_to_omit.add('*%s' % manifest_file)
+            for manifest in build._get_available_manifests(repo, sha):
+                if os.path.dirname(manifest) not in modules_to_install:
+                    split = manifest.split(os.sep)
+                    repo_dest = repo._sha_dest_name(sha)
+                    start = split.index(repo_dest)
+                    exlude = os.sep.join(split[start:-1])
+                    pattern_to_omit.add('*%s/*' % exlude)
+        return ['--omit', ','.join(pattern_to_omit)]
 
     def _make_results(self, build):
         build_values = {}
