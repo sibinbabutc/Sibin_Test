@@ -235,7 +235,7 @@ class ConfigStep(models.Model):
         # adjust job_end to record an accurate job_20 job_time
         build._log('run', 'Start running build %s' % build.dest)
         # run server
-        cmd = build._cmd()
+        pre, cmd, post = build._cmd()
         server = build._server()
         if os.path.exists(os.path.join(server, 'addons/im_livechat')):
             cmd += ["--workers", "2"]
@@ -263,11 +263,11 @@ class ConfigStep(models.Model):
         build_port = build.port
         self.env.cr.commit()  # commit before docker run to be 100% sure that db state is consistent with dockers
         self.invalidate_cache()
-        return docker_run(build_odoo_cmd(cmd), log_path, build_path, docker_name, exposed_ports=[build_port, build_port + 1], ro_volumes=exports)
+        return docker_run(build_odoo_cmd(pre, cmd, post), log_path, build_path, docker_name, exposed_ports=[build_port, build_port + 1], ro_volumes=exports)
 
     def _run_odoo_install(self, build, log_path):
         exports = build._checkout()
-        cmd = build._cmd()
+        pre, cmd, post = build._cmd()
         # create db if needed
         db_name = "%s-%s" % (build.dest, self.db_name)
         if self.create_db:
@@ -303,7 +303,7 @@ class ConfigStep(models.Model):
 
         max_timeout = int(self.env['ir.config_parameter'].get_param('runbot.runbot_timeout', default=10000))
         timeout = min(self.cpu_limit, max_timeout)
-        return docker_run(build_odoo_cmd(cmd), log_path, build._path(), build._get_docker_name(), cpu_limit=timeout, ro_volumes=exports)
+        return docker_run(build_odoo_cmd(pre, cmd, post), log_path, build._path(), build._get_docker_name(), cpu_limit=timeout, ro_volumes=exports)
 
     def _modules_to_install(self, build):
         modules_to_install = set([mod.strip() for mod in self.install_modules.split(',')])
@@ -331,7 +331,7 @@ class ConfigStep(models.Model):
             for manifest in build._get_available_manifests(repo, sha):
                 if os.path.dirname(manifest) not in modules_to_install:
                     split = manifest.split(os.sep)
-                    repo_dest = repo._sha_dest_name(sha)
+                    repo_dest = repo._sha_dest_name(sha) # if using mount overlay, need to adapt this
                     start = split.index(repo_dest)
                     exlude = os.sep.join(split[start:-1])
                     pattern_to_omit.add('*%s/*' % exlude)

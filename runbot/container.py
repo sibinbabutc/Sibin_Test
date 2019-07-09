@@ -31,7 +31,7 @@ ENV COVERAGE_FILE /data/build/.coverage
 """ % {'group_id': os.getgid(), 'user_id': os.getuid()}
 
 
-def build_odoo_cmd(odoo_cmd):
+def build_odoo_cmd(pre, cmd, post):
     """ returns the chain of commands necessary to run odoo inside the container
         : param odoo_cmd: odoo command as a list
         : returns: a string with the command chain to execute in the docker container
@@ -39,10 +39,10 @@ def build_odoo_cmd(odoo_cmd):
     # build cmd
     cmd_chain = []
     cmd_chain.append('cd /data/build')
-    server_path = odoo_cmd[0]
+    server_path = cmd[0]
     requirement_path = os.path.join(os.path.dirname(server_path), 'requirements.txt')
     cmd_chain.append('head -1 %s | grep -q python3 && sudo pip3 install -r %s || sudo pip install -r %s' % (server_path, requirement_path, requirement_path))
-    cmd_chain.append(' '.join(odoo_cmd))
+    cmd_chain.append(' '.join(cmd))
     return ' && '.join(cmd_chain)
 
 

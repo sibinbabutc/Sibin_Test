@@ -84,7 +84,7 @@ class Test_Build(common.TransactionCase):
             'name': 'd0d0caca0000ffffffffffffffffffffffffffff',
             'port': '1234',
         })
-        cmd = build._cmd()
+        pre, cmd, post = build._cmd()
         self.assertIn('--log-db=%s' % uri, cmd)
 
     @patch('odoo.addons.runbot.models.build.os.path.isfile')
@@ -98,7 +98,7 @@ class Test_Build(common.TransactionCase):
             'name': 'd0d0caca0000ffffffffffffffffffffffffffff',
             'port': '1234',
         })
-        cmd = build._cmd()
+        pre, cmd, post = build._cmd()
         self.assertEqual('/data/build/bar-d0d0caca/server.py', cmd[0])
         self.assertIn('--addons-path', cmd)
         addons_path_pos = cmd.index('--addons-path') + 1
@@ -139,7 +139,7 @@ class Test_Build(common.TransactionCase):
                 'name': 'd0d0caca0000ffffffffffffffffffffffffffff',
                 'port': '1234',
             })
-        cmd = build._cmd()
+        pre, cmd, post = build._cmd()
         self.assertIn('--addons-path', cmd)
         addons_path_pos = cmd.index('--addons-path') + 1
         self.assertEqual(cmd[addons_path_pos], 'bar-ent-d0d0caca,bar-dfdfcfcf/addons')

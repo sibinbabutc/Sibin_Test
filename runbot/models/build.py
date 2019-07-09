@@ -803,10 +803,14 @@ class runbot_build(models.Model):
 
     def get_addons_path(self, repo_sha_list=None):
         for repo, sha in (repo_sha_list or self.get_all_repo_sha()):
+            folder = ''
             if repo.server_files:
-                yield os.path.join(repo._sha_dest_name(sha), 'addons')
-            else:
-                yield repo._sha_dest_name(sha)
+                folder = 'addons'
+            yield {
+                'export': repo._sha_dest_name(sha),
+                'name': repo._get_repo_name_part(),
+                'folder': folder,
+            }
 
     def get_server_info(self, server_repo_sha=None):
         server_dir = False
@@ -819,7 +823,7 @@ class runbot_build(models.Model):
         self._log('server_info', 'No server found in %s' % sha_dest_name, level='ERROR')
         raise ValidationError('No server found in %s for sha %s' % (server_repo.short_name, server_sha))
 
-    def _cmd(self):
+    def _cmd(self, use_mounts=True):
         """Return a tuple describing the command to start the build
         First part is list with the command and parameters
         Second part is a list of Odoo modules
@@ -828,10 +832,38 @@ class runbot_build(models.Model):
         build = self
 
         (repo, server_sha, server_file) = self.get_server_info()
-        server_dir = repo._sha_dest_name(server_sha)
-        addons_paths = self.get_addons_path()
+        addons_paths = self.get_addons_path()  # export, name, folder
+        # mount ro addons_paths
+        pre = []
+        post = []
+        rw_addons_paths = []
+        if use_mounts:
+            server_dir = repo._get_repo_name_part()
+            for addons_path in addons_paths:
+                export = addons_path['export']
+                name = addons_path['name']
+                folder = addons_path['folder']
+                upper = os.path.join('overlay', '%s_upper' % export)
+                workdir = os.path.join('overlay', '%s_workdir' % export)
+                lower = export
+                dest = name
+                os.makedirs(self._path('upper'), exist_ok=True)
+                os.makedirs(self._path('workdir'), exist_ok=True)
+                os.makedirs(self._path('dest'), exist_ok=True)
+                pre.append('sudo mount -t overlay -o lowerdir=%s,upper_dir=%s,workdir=%s none %s' % (lower, upper, workdir, dest))
+                post.append('sudo umount dest')
+                post.append('rm dest')
+                rw_addons_paths.append(os.path.join(dest, folder))
+        else:
+            server_dir = repo._sha_dest_name(server_sha)
+            for addons_path in addons_paths:
+                export = addons_path['export']
+                folder = addons_path['folder']
+                rw_addons_paths.append(os.path.join(export, folder))
+
+        print(mounts)
         # commandline
-        cmd = [os.path.join('/data/build', server_dir, server_file), '--addons-path', ",".join(addons_paths)]
+        cmd = [os.path.join('/data/build', server_dir, server_file), '--addons-path', ",".join(rw_addons_paths)]
         # options
         if grep(build._server("tools/config.py"), "no-xmlrpcs"):  # move that to configs ?
             cmd.append("--no-xmlrpcs")
