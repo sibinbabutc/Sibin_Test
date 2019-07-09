@@ -309,7 +309,7 @@ class ConfigStep(models.Model):
         modules_to_install = set([mod.strip() for mod in self.install_modules.split(',')])
         if '*' in modules_to_install:
             modules_to_install.remove('*')
-            default_mod = set([mod.strip() for mod in build._get_modules_to_test()])
+            default_mod = set(build._get_modules_to_test())
             modules_to_install = default_mod | modules_to_install
             #  todo add without support
         return modules_to_install
@@ -326,7 +326,7 @@ class ConfigStep(models.Model):
     def _coverage_params(self, build, modules_to_install):
         pattern_to_omit = set()
         for repo, sha in self.get_all_repo_sha:
-            for manifest_file in repo.manifest_files:
+            for manifest_file in repo.manifest_files.split(','):
                 pattern_to_omit.add('*%s' % manifest_file)
             for manifest in build._get_available_manifests(repo, sha):
                 if os.path.dirname(manifest) not in modules_to_install:

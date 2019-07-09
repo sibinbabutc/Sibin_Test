@@ -646,23 +646,20 @@ class runbot_build(models.Model):
                 return True
             if module.startswith(('hw_', 'theme_', 'l10n_')):
                 return False
-            if module not in blacklist_modules:
+            if module in blacklist_modules:
                 return False
             return True
 
         return uniq_list([module for module in modules if mod_filter(module)])
 
     def _get_available_manifests(self, repo, sha):
-        repo_path = repo._sha_dest_name(sha)
-        for file_name in repo.manifest_files:  # __manifest__.py, __openerp__.py
-            for manifest_path in glob.glob(self._path(repo_path, '*/%s' % file_name)):
+        for file_name in repo.manifest_files.split(','):  # __manifest__.py, __openerp__.py
+            for manifest_path in glob.glob(repo._source(sha, '**/%s' % file_name), recursive=True):
                 yield manifest_path
 
     def _checkout(self, repos_sha=None):
         self.ensure_one()  # will raise exception if hash not found, we don't want to fail for all build.
         # checkout branch
-        manifests_by_repo = {}
-        available_modules = []
         sources = {}
         for repo, sha in repos_sha or self.get_all_repo_sha():
             build_export_path = repo._sha_dest_name(sha)
@@ -682,9 +679,9 @@ class runbot_build(models.Model):
         manifests_by_repo = {}
         available_modules = []
         for repo, sha in repos_sha or self.get_all_repo_sha():
-            manifests_by_repo[repo] = self._get_available_manifests(repo, sha)
+            manifests_by_repo[repo] = list(self._get_available_manifests(repo, sha))
             for manifest_path in manifests_by_repo[repo]:
-                module = os.path.dirname(manifest_path)
+                module = os.path.basename(os.path.dirname(manifest_path))
                 if module in available_modules:
                     self._log(
                         'Building environment',
@@ -692,8 +689,7 @@ class runbot_build(models.Model):
                         level='WARNING'
                     )
                 else:
-                    available_modules += module
-
+                    available_modules.append(module)
         explicit_modules = uniq_list([module for module in (self.branch_id.modules or '').split(',') + (self.repo_id.modules or '').split(',') if module])
 
         if explicit_modules:
@@ -711,7 +707,6 @@ class runbot_build(models.Model):
             modules_to_test = explicit_modules
 
         modules_to_test = self._filter_modules(modules_to_test, available_modules, explicit_modules)
-
         _logger.debug("modules_to_test for build %s: %s", self.dest, modules_to_test)
         return modules_to_test
 
