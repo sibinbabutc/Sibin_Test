@@ -58,6 +58,27 @@ class ConfigStep(models.Model):
             return cmd
         return []
 
+    def _coverage_params(self, build, modules_to_install):
+        if not build.repo_id.custom_coverage:
+            return super(ConfigStep, self)._coverage_params(build, modules_to_install)
+
+        paths = set([mod.strip() for mod in build.repo_id.custom_coverage.split(',')])
+
+        available_modules = [  # todo extract this to build method
+            os.path.basename(os.path.dirname(a))
+            for a in (glob.glob(build._server('addons/*/__openerp__.py')) + glob.glob(build._server('addons/*/__manifest__.py')))
+        ]
+
+        modules_to_analyze = []
+        for path in paths:
+            modules_to_analyze += [  # todo extract this to build method
+                os.path.basename(os.path.dirname(a))
+                for a in (glob.glob(build._server('%s/__openerp__.py' % path)) + glob.glob(build._server('%s/__manifest__.py' % path)))
+            ]
+        module_to_omit = set(available_modules) - set(modules_to_analyze)
+        return ['--omit', ','.join('*addons/%s/*' % m for m in module_to_omit) + '*,__manifest__.py']
+
+
     def _restore_db(self, build, log_path):
         if not build.db_to_restore:
             return
