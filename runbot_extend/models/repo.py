@@ -35,12 +35,19 @@ class runbot_repo(models.Model):
 
     def _git_export(self, treeish, dest):
         res =  super(runbot_repo, self)._git_export(treeish, dest)
-        if not self.use_requirements_txt:
-            return res
 
         previous_path = '%s/%s' % (dest, 'previous_requirements.txt')
         current_path = '%s/%s' % (dest, 'requirements.txt')
         tmp_path = '%s/%s' % (dest, 'requirements_tmp.txt')
+
+        if not self.use_requirements_txt:
+            # if repo contains a requirement.txt but we should not use it
+            if os.path.isfile(current_path):
+                os.remove(current_path)
+            if os.path.isfile(previous_path):
+                shutil.copy(previous_path, current_path)
+            return res
+
 
         if os.path.isfile(previous_path) and os.path.isfile(current_path):
             output = open(tmp_path, "wb")
