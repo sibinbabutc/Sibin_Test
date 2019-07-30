@@ -92,10 +92,11 @@ class ConfigStep(models.Model):
         ], limit=1)
         folder, filename = attachment.store_fname.split('/')
         folder_to_add = os.path.join(attachment._filestore(), folder)
+        restore_volumes = {'/data/build/restore_volume': folder_to_add}
         cmd = ['createdb %s' % db_name]
-        cmd += ['&&', 'unzip %s/%s -d %s' % ('data/build/additional_volume', filename, 'data/build/datadir')]
+        cmd += ['&&', 'unzip %s/%s -d %s' % ('data/build/restore_volume', filename, 'data/build/datadir')]
         cmd += ['&&', 'psql -a %s < %s' % (db_name, 'data/build/datadir/dump.sql')]
-        return docker_run(' '.join(cmd), log_path, build._path(), build._get_docker_name(), additional_volume=folder_to_add)
+        return docker_run(' '.join(cmd), log_path, build._path(), build._get_docker_name(), ro_volumes=restore_volumes)
 
     def _upgrade_db(self, build, log_path):
         if not build.db_to_restore:
