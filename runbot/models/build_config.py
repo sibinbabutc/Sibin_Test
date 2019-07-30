@@ -340,7 +340,7 @@ class ConfigStep(models.Model):
         pattern_to_omit = set()
         for commit in build._get_all_commit():
             docker_source_folder = build._docker_source_folder(commit)
-            for manifest_file in commit.repo.manifest_files.split(','):
+            for manifest_file in (commit.repo.manifest_files or '').split(','):
                 pattern_to_omit.add('*%s' % manifest_file)
             for (addons_path, module, _) in build._get_available_modules(commit):
                 if module not in modules_to_install:
