@@ -162,6 +162,7 @@ def docker_run(run_cmd, log_path, build_dir, container_name, exposed_ports=None,
     if cpu_limit:
         docker_command.extend(['--ulimit', 'cpu=%s' % int(cpu_limit)])
     docker_command.extend(['odoo:runbot_tests', '/bin/bash', '-c', "%s" % run_cmd])
+    _logger.info('DOCKER COMMAND: %s', docker_command,)
     docker_run = subprocess.Popen(docker_command, stdout=logs, stderr=logs, preexec_fn=preexec_fn, close_fds=False, cwd=build_dir)
     _logger.info('Started Docker container %s', container_name)
     return docker_run.pid
