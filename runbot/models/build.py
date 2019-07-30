@@ -690,8 +690,8 @@ class runbot_build(models.Model):
         return commit._source_path('openerp', *path)
 
     def _get_available_modules(self, commit):
-        for manifest_file_name in commit.repo.manifest_files.split(','):  # '__manifest__.py' '__openerp__.py'
-            for addons_path in commit.repo.addons_paths.split(','):  # '' 'addons' 'odoo/addons'
+        for manifest_file_name in (commit.repo.manifest_files or '').split(','):  # '__manifest__.py' '__openerp__.py'
+            for addons_path in (commit.repo.addons_paths or '').split(','):  # '' 'addons' 'odoo/addons'
                 sep = os.path.join(addons_path, '*')
                 for manifest_path in glob.glob(commit._source_path(sep, manifest_file_name)):
                     module = os.path.basename(os.path.dirname(manifest_path))
@@ -866,7 +866,7 @@ class runbot_build(models.Model):
     def _get_addons_path(self, commits=None):
         for commit in (commits or self._get_all_commit()):
             source_path = self._docker_source_folder(commit)
-            for addons_path in commit.repo.addons_paths.split(','):
+            for addons_path in (commit.repo.addons_paths or '').split(','):
                 if os.path.isdir(commit._source_path(addons_path)):
                     yield os.path.join(source_path, addons_path).strip(os.sep)
 
