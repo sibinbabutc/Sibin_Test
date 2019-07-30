@@ -13,9 +13,9 @@ import subprocess
 import shutil
 
 from odoo import models, fields, api, _
-from odoo.addons.runbot.container import docker_build, docker_run, build_odoo_cmd
+from odoo.addons.runbot.container import docker_build, docker_run
 from odoo.addons.runbot.models.build_config import _re_error, _re_warning
-from odoo.addons.runbot.common import dt2time, fqdn, now, grep, time2str, rfind, uniq_list, local_pgadmin_cursor, get_py_version
+from odoo.addons.runbot.common import dt2time, fqdn, now, grep, time2str, rfind, uniq_list, local_pgadmin_cursor
 
 def regex_match_file(filename, pattern):
     regexp = re.compile(pattern)
@@ -42,16 +42,16 @@ class ConfigStep(models.Model):
             return self._upgrade_db(build, log_path)
         return super(ConfigStep, self)._run_step(build, log_path)
 
-    def _post_install_command(self, build, modules_to_install):
+    def _post_install_command(self, build, modules_to_install, py_version=None):
         if not build.repo_id.custom_coverage:
             return super(ConfigStep, self)._post_install_command(build, modules_to_install)
         if self.coverage:
-            py_version = get_py_version(build)
+            py_version = py_version if py_version is not None else build._get_py_version()
             # prepare coverage result
             cov_path = build._path('coverage')
             os.makedirs(cov_path, exist_ok=True)
             cmd = [
-                '&&', py_version, "-m", "coverage", "html", "-d", "/data/build/coverage", "--include %s" % build.repo_id.custom_coverage,
+                '&&', 'python%s' % py_version, "-m", "coverage", "html", "-d", "/data/build/coverage", "--include %s" % build.repo_id.custom_coverage,
                 "--omit *__openerp__.py,*__manifest__.py",
                 "--ignore-errors"
             ]
@@ -103,23 +103,23 @@ class ConfigStep(models.Model):
             return
         ordered_step = self._get_ordered_step(build)
         to_test = build.modules if build.modules and not build.repo_id.force_update_all else 'all'
-        cmd, mods = build._cmd()
+        cmd = build._cmd()
         db_name = "%s-%s" % (build.dest, self.db_name)
         build._log('upgrade', 'Start Upgrading %s modules on %s' % (to_test, db_name))
         cmd += ['-d', db_name, '-u', to_test, '--stop-after-init', '--log-level=info']
         if build.repo_id.testenable_restore:
-            cmd.append("--test-enable")
+            cmd += ["--test-enable"]
             if self.test_tags:
                 test_tags = self.test_tags.replace(' ', '')
-                cmd.extend(['--test-tags', test_tags])
+                cmd += ['--test-tags', test_tags]
         if self.extra_params:
-            cmd.extend(shlex.split(self.extra_params))
+            cmd += shlex.split(self.extra_params)
         if ordered_step.custom_config_template:
             with open(build._path('build.conf'), 'w+') as config_file:
                 config_file.write("[options]\n")
                 config_file.write(ordered_step.custom_config_template)
-            cmd.extend(["-c", "/data/build/build.conf"])
-        return docker_run(build_odoo_cmd(cmd), log_path, build._path(), build._get_docker_name())
+            cmd += ["-c", "/data/build/build.conf"]
+        return docker_run(cmd.build(), log_path, build._path(), build._get_docker_name())
 
     def _make_results(self, build):
         if self and self._get_ordered_step(build).is_custom_parsing:

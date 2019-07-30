@@ -14,9 +14,9 @@ import shutil
 import fnmatch
 
 from odoo import models, fields, api, _
-from odoo.addons.runbot.container import docker_build, docker_run, build_odoo_cmd
+from odoo.addons.runbot.container import docker_build, docker_run
 from odoo.addons.runbot.models.build_config import _re_error, _re_warning
-from odoo.addons.runbot.common import dt2time, fqdn, now, grep, time2str, rfind, uniq_list, local_pgadmin_cursor, get_py_version
+from odoo.addons.runbot.common import dt2time, fqdn, now, grep, time2str, rfind, uniq_list, local_pgadmin_cursor
 _logger = logging.getLogger(__name__)
 
 
