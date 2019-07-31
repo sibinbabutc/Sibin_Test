@@ -13,6 +13,7 @@ import subprocess
 import shutil
 
 from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 from odoo.addons.runbot.container import docker_build, docker_run
 from odoo.addons.runbot.models.build_config import _re_error, _re_warning
 from odoo.addons.runbot.common import dt2time, fqdn, now, grep, time2str, rfind, uniq_list, local_pgadmin_cursor
@@ -34,6 +35,27 @@ class ConfigStep(models.Model):
             ('restore','Restore Database'),
             ('upgrade', 'Upgrade Database'),
             ])
+
+    def _check_step_ids_order(self):
+        """Ensure step are correctly ordered.
+
+        ..note: Customized to allow either an 'install_odoo' or a 'restore' job
+            before an 'run_odoo' job.
+        """
+        install_job = False
+        restore_job = False
+        step_ids = self.step_ids()
+        for step in step_ids:
+            if step.job_type == 'install_odoo':
+                install_job = True
+            if step.job_type == 'restore':
+                restore_job = True
+            if step.job_type == 'run_odoo':
+                if step != step_ids[-1]:
+                    raise UserError('Jobs of type run_odoo should be the last one')
+                if not install_job and not restore_job:
+                    raise UserError('Jobs of type run_odoo should be preceded by a job of type install_odoo')
+        self._check_recustion()
 
     def _run_step(self, build, log_path):
         if self.job_type == 'restore':
