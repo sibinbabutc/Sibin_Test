@@ -141,7 +141,8 @@ class ConfigStep(models.Model):
             with open(build._path('build.conf'), 'w+') as config_file:
                 config_file.write("[options]\n")
                 config_file.write(ordered_step.custom_config_template)
-            cmd += ["-c", "/data/build/build.conf"]
+            if not build.repo_id.custom_config_template:  # avoid adding twice the command
+                cmd += ["-c", "/data/build/build.conf"]
         return docker_run(cmd.build(), log_path, build._path(), build._get_docker_name())
 
     def _make_results(self, build):

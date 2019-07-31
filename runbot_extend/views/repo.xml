@@ -14,6 +14,7 @@
                 <field name="force_update_all" attrs="{'invisible': ['|', ('restored_db','=',False), ('no_build','=',True)]}"/>
                 <field name="testenable_restore" attrs="{'invisible': ['|', ('restored_db','=',False), ('no_build','=',True)]}"/>
                 <field name="custom_coverage" attrs="{'invisible': [('no_build','=',True)]}"/>
+                <field name="custom_config_template" attrs="{'invisible': [('no_build', '=', True)]}"/>
                 <field name="forced_branch_ids" attrs="{'invisible': [('no_build','=',True)]}">
                   <tree editable="bottom">
                     <field name="sequence"/>

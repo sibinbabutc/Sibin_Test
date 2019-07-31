@@ -92,4 +92,10 @@ class runbot_build(models.Model):
                     if 'requirements.txt' in arg:
                         pre[i] = '/data/build/requirements.txt'
 
+        if self.repo_id.custom_config_template:
+            with open(self._path('build.conf'), 'w+') as config_file:
+                config_file.write("[options]\n")
+                config_file.write(self.repo_id.custom_config_template)
+            cmd += ["-c", "/data/build/build.conf"]
+
         return cmd
