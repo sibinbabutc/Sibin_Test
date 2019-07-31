@@ -31,6 +31,8 @@ class runbot_repo(models.Model):
     testenable_restore = fields.Boolean('Test enable on upgrade', help='test enabled on update of the restored database', default=False)
     custom_coverage = fields.Char(string='Custom coverage repository',
                                   help='Use --include arg on coverage: list of file name patterns, for example *addons/module1*,*addons/module2*. It only works on sticky branches on nightly coverage builds.')
+    custom_config_template = fields.Text('Custom configuration',
+                                         help="This config will be placed in a text file, behind the [option] line, and passed with a -c to the jobs.")
     forced_branch_ids =  fields.One2many('runbot.forced.branch', 'repo_id', string='Replacing branch names')
 
 
