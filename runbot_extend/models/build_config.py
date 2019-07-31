@@ -124,7 +124,7 @@ class ConfigStep(models.Model):
         if not build.db_to_restore:
             return
         ordered_step = self._get_ordered_step(build)
-        to_test = build.modules if build.modules and not build.repo_id.force_update_all else 'all'
+        to_test = build.repo_id.modules if build.repo_id.modules and not build.repo_id.force_update_all else 'all'
         cmd = build._cmd()
         db_name = "%s-%s" % (build.dest, self.db_name)
         build._log('upgrade', 'Start Upgrading %s modules on %s' % (to_test, db_name))
