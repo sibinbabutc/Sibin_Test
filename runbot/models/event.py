@@ -26,7 +26,7 @@ class runbot_event(models.Model):
         self._cr.execute("""
 CREATE OR REPLACE FUNCTION runbot_set_logging_build() RETURNS TRIGGER AS $runbot_set_logging_build$
 BEGIN
-  IF (NEW.build_id IS NULL AND NEW.dbname IS NOT NULL AND NEW.dbname != current_database()) THEN
+  IF (NEW.build_id IS NULL AND NEW.dbname IS NOT NULL AND NEW.dbname != current_database() AND NEW.dbname ~ '[0-9]+-.*') THEN
     NEW.build_id := split_part(NEW.dbname, '-', 1)::integer;
   END IF;
   IF (NEW.build_id IS NOT NULL AND UPPER(NEW.level) NOT IN ('INFO', 'SEPARATOR')) THEN
