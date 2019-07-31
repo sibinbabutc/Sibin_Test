@@ -64,7 +64,7 @@ def grep(filename, string):
 
 
 def uniq_list(l):
-    return OrderedDict.fromkeys(l).keys()
+    return list(OrderedDict.fromkeys(l).keys())
 
 
 def flatten(list_of_lists):
