@@ -54,7 +54,6 @@ class runbot_build(models.Model):
                     'committer': last_build.committer,
                     'committer_email': last_build.committer_email,
                     'subject': prefixer(last_build.subject, '(coverage)'),
-                    'modules': last_build.modules,
                     'extra_params': '',
                     'coverage': True,
                     'job_type': 'testing',
