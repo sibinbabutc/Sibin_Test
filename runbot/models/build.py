@@ -14,7 +14,7 @@ from odoo.addons.runbot.models.repo import HashMissingException
 from odoo import models, fields, api
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
-from odoo.tools import appdirs
+from odoo.tools import appdirs, OrderedSet
 from collections import defaultdict
 from subprocess import CalledProcessError
 
@@ -107,7 +107,7 @@ class runbot_build(models.Model):
     @api.depends('config_id')
     def _compute_log_list(self):  # storing this field because it will be access trhoug repo viewn and keep track of the list at create
         for build in self:
-            build.log_list = ','.join({step.name for step in build.config_id.step_ids() if step._has_log()})
+            build.log_list = ','.join(OrderedSet(step.name for step in build.config_id.step_ids() if step._has_log()))
 
     @api.depends('nb_testing', 'nb_pending', 'local_state', 'duplicate_id.global_state')
     def _compute_global_state(self):
