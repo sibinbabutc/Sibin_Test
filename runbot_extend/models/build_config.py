@@ -2,6 +2,7 @@
 
 import glob
 import io
+import fnmatch
 import logging
 import re
 import time
@@ -73,7 +74,7 @@ class ConfigStep(models.Model):
             cov_path = build._path('coverage')
             os.makedirs(cov_path, exist_ok=True)
             cmd = [
-                '&&', 'python%s' % py_version, "-m", "coverage", "html", "-d", "/data/build/coverage", "--include %s" % build.repo_id.custom_coverage,
+                'python%s' % py_version, "-m", "coverage", "html", "-d", "/data/build/coverage", "--include %s" % build.repo_id.custom_coverage,
                 "--omit *__openerp__.py,*__manifest__.py",
                 "--ignore-errors"
             ]
@@ -85,20 +86,20 @@ class ConfigStep(models.Model):
             return super(ConfigStep, self)._coverage_params(build, modules_to_install)
 
         paths = set([mod.strip() for mod in build.repo_id.custom_coverage.split(',')])
+        pattern_to_omit = set()
 
-        available_modules = [  # todo extract this to build method
-            os.path.basename(os.path.dirname(a))
-            for a in (glob.glob(build._server('addons/*/__openerp__.py')) + glob.glob(build._server('addons/*/__manifest__.py')))
-        ]
+        # omit all modules except those matching the 'custom_coverage' patterns
+        for commit in build._get_all_commit():
+            docker_source_folder = build._docker_source_folder(commit)
+            for manifest_file in (commit.repo.manifest_files or '').split(','):
+                pattern_to_omit.add('*%s' % manifest_file)
+            for (addons_path, module, _) in build._get_available_modules(commit):
+                # we want to omit docker_source_folder/[addons/path/]module/*
+                module_path_in_docker = os.path.join(docker_source_folder, addons_path, module)
+                if not any(fnmatch.fnmatch(module_path_in_docker, path) for path in paths):
+                    pattern_to_omit.add('%s/*' % (module_path_in_docker))
 
-        modules_to_analyze = []
-        for path in paths:
-            modules_to_analyze += [  # todo extract this to build method
-                os.path.basename(os.path.dirname(a))
-                for a in (glob.glob(build._server('%s/__openerp__.py' % path)) + glob.glob(build._server('%s/__manifest__.py' % path)))
-            ]
-        module_to_omit = set(available_modules) - set(modules_to_analyze)
-        return ['--omit', ','.join('*addons/%s/*' % m for m in module_to_omit) + '*,__manifest__.py']
+        return ['--omit', ','.join(pattern_to_omit)]
 
 
     def _restore_db(self, build, log_path):

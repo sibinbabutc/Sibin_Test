@@ -56,7 +56,6 @@ class runbot_build(models.Model):
                     'subject': prefixer(last_build.subject, '(coverage)'),
                     'extra_params': '',
                     'coverage': True,
-                    'job_type': 'testing',
                     'build_type': 'scheduled',
                     'config_id': self.env.ref('runbot.runbot_build_config_test_coverage').id,
                 })
