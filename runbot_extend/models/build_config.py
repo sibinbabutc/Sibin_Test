@@ -136,6 +136,7 @@ class ConfigStep(models.Model):
     def _upgrade_db(self, build, log_path):
         if not build.db_to_restore:
             return
+        exports = build._checkout()
         ordered_step = self._get_ordered_step(build)
         to_test = build.repo_id.modules if build.repo_id.modules and not build.repo_id.force_update_all else 'all'
         cmd = build._cmd()
@@ -155,7 +156,7 @@ class ConfigStep(models.Model):
                 config_file.write(ordered_step.custom_config_template)
             if not build.repo_id.custom_config_template:  # avoid adding twice the command
                 cmd += ["-c", "/data/build/build.conf"]
-        return docker_run(cmd.build(), log_path, build._path(), build._get_docker_name())
+        return docker_run(cmd.build(), log_path, build._path(), build._get_docker_name(), ro_volumes=exports)
 
     def _make_results(self, build):
         if self and self._get_ordered_step(build).is_custom_parsing:
