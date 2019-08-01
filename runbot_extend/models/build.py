@@ -78,6 +78,16 @@ class runbot_build(models.Model):
                     with open(commit_requirements_path, 'rb') as commit_requirements_fp:
                         shutil.copyfileobj(commit_requirements_fp, build_requirements_fp)
 
+        for commit in commits or self._get_all_commit():
+            if commit.repo != self.repo_id:
+                continue
+            build_export_path = self._docker_source_folder(commit)
+            if build_export_path in exports and 'upgrades' not in exports:
+                if os.path.exists(commit._source_path('upgrades')):
+                    # repository using custom auto-ugrade mecanisms need
+                    # 'upgrades' folder to be present at /data/build/upgrades
+                    exports['upgrades'] = os.path.join(exports[build_export_path], 'upgrades')
+
         return exports
 
     def _cmd(self, python_params=None, py_version=None, local_only=True):
