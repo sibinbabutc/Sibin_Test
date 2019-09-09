@@ -155,11 +155,16 @@ class runbot_repo(models.Model):
         _logger.info('git export: checkouting to %s (new)' % export_path)
         os.makedirs(export_path)
 
-        p1 = subprocess.Popen(['git', '--git-dir=%s' % self.path, 'archive', sha], stdout=subprocess.PIPE)
-        p2 = subprocess.Popen(['tar', '-xmC', export_path], stdin=p1.stdout, stdout=subprocess.PIPE)
+        p1 = subprocess.Popen(['git', '--git-dir=%s' % self.path, 'archive', sha], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p2 = subprocess.Popen(['tar', '-xmC', export_path], stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
         (out, err) = p2.communicate()
-        if err:
+        p1.wait()
+        if p1.returncode != 0:
+            _logger.error('git archive failure: %s (%s)', p1.stderr.read().decode(), p1.returncode)
+            raise ArchiveFailException(err)
+        if p2.returncode != 0:
+            _logger.error('tar failure: %s (%s)', err.decode(), p2.returncode)
             raise ArchiveFailException(err)
 
         # TODO get result and fallback on cleaing in case of problem
