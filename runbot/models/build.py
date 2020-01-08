@@ -147,6 +147,13 @@ class runbot_build(models.Model):
             max_days += int(build.gc_delay if build.gc_delay else 0)
             build.gc_date = ref_date + datetime.timedelta(days=(max_days))
 
+    def _get_top_parent(self):
+        self.ensure_one()
+        build = self
+        while build.parent_id:
+            build = build.parent_id
+        return build
+
     def _get_youngest_state(self, states):
         index = min([self._get_state_score(state) for state in states])
         return state_order[index]
@@ -455,7 +462,8 @@ class runbot_build(models.Model):
     def _skip(self, reason=None):
         """Mark builds ids as skipped"""
         if reason:
-            self._logger('skip %s', reason)
+            for build in self:
+                build._logger('skip %s', reason)
         self.write({'local_state': 'done', 'local_result': 'skipped', 'duplicate_id': False})
 
     def _build_from_dest(self, dest):
